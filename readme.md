@@ -20,4 +20,8 @@ This is not for production usage.
  - fetch dependencies `lein deps`
  - start a repl `lein repl`
 
+# Contributions
 
+This is a learning excerise for me. Any feedback is welcome!
+Feel free to clone and extend as you wish.
+Use at your own risk!
