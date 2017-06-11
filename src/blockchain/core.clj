@@ -1,94 +1,107 @@
 (ns blockchain.core
   (:require 
     [digest]
+    [blockchain.block :as block]
+    [blockchain.util :refer [natural-numbers]]
     [clojure.spec.alpha :as s]
     [clojure.future :refer :all]))
 
-(defprotocol BlockchainNetwork
-  "A network of blockchain nodes."
-  )
-
 (defprotocol Blockchain
-  "Blockchain abstraction."
-  (blocks [this])
-  (validate [this]))
+  (blocks [chain])
+  (latest [chain])
+  (offer  [chain block])
+  (add!   [chain block])
+  )
 
 (defrecord InMemoryBlockchain
+  [list-atom domain-validation]
+  Blockchain
+
+  (latest [chain]
+    (-> chain :list-atom deref first))
+
+  (blocks [chain]
+    (some-> chain :list-atom deref))
+
+  (offer [chain blk]
+    (cond
+      (false? (block/valid? blk))
+      {:type :error
+       :message "Given block is invalid."}
+      
+      (not (= (:hash (latest chain))
+              (:previous blk)))
+      {:type :error
+       :message "Previous is not referencing latest block in chain."
+       :info {:lastest (:hash (latest chain))
+              :given   (:previous blk)}}
+      
+      
+      (not (= :ok (:type (domain-validation chain blk))))
+      {:type :error
+       :message "Failed chain domain validation."
+       :domain-validation-result (domain-validation chain blk)}
+      
+      :otherwise
+      {:type :ok}))
+  
+  (add! [chain blk]
+    (let [validation (offer chain blk)]
+      (cond
+        (= :ok (:type validation))
+        (do (swap! (:list-atom chain)
+               conj
+               blk)
+            chain)
+        
+        :otherwise
+        (throw (ex-info "Block not acceptable." validation))))))
+
+(defn strictly-growing-number
+  [chain blk]
+  (let [before (:body (latest chain))
+        genesis? (nil? before)
+        nxt (:body blk)]
+    (cond
+      (not (int? nxt))
+      {:type :error
+       :message "New block value must be an int."}
+
+      genesis?
+      {:type :ok}
+
+      (not (< before nxt))
+      {:type :error
+       :message "New block value must be strictly bigger than previous."
+       :info {:befor before
+              :next nxt}}
+
+      :otherwise
+      {:type :ok})))
+
+(defn in-mem-chain
   []
-  Blockchain)
+  (InMemoryBlockchain. (atom (list (block/genesis)))
+                       strictly-growing-number
+                       ;;(constantly {:type :ok})
+                       ))
 
-(def natural-numbers (iterate inc 0))
-
-(def block
-  {:headers {:content-type "application/edn"}
-   :nonce nil
-   :previous ""
-   :hash ""
-   :body ""})
-
-(defn has-valid-hash?
-  [blk]
-  (.startsWith (:hash blk) "0000"))
-
-(defn with-nounce
-  [nounce block]
-  (assoc block :nonce nounce))
-
-(defn hash-block
-  [blk]
-  (assoc blk 
-         :hash (-> blk
-                   (dissoc :hash)
-                   prn-str
-                   digest/sha-256)))
-
-(defn sign
-  [blk]
-  (->> natural-numbers
-       (map #(with-nounce % blk))
-       (map hash-block)
-       (filter has-valid-hash?)
-       first))
-
-(defn valid?
-  [blk]
-  (and (has-valid-hash? blk)
-       (= (:hash blk)
-          (:hash (hash-block blk)))))
 
 (comment
-
-  (valid? block)
-
-  (valid? signed-block)
-  (valid? (assoc signed-block :body "fun"))
-
-  (clojure.pprint/pprint signed-block)
-  (hash-block signed-block)
-
-  (def signed-block (sign block))
-
-  (time (sign block))
   
+  (do
+    (def test-chain (in-mem-chain))
+    (def b2 (block/sign (create-chain-block test-chain 1)))
+    (add! test-chain b2))
+
+  (clojure.pprint/pprint test-chain)
   
   )
 
-(defn in-mem-blockchain
-  []
-  (InMemoryBlockchain.))
-
-
-(comment
-
-  (take 3 natural-numbers)
-
-  (filter 
-        (for [i natural-numbers
-              :when  (= i 10)]
-          i))
-
-  (in-mem-blockchain)
-  
-  (def bc ())
-  
-  )
+(defn create-chain-block
+  [blockchain body]
+  (block/map->Block {:headers {}
+                     :nonce 0
+                     :previous (:hash (latest blockchain))
+                     :hash ""
+                     :body body}))
