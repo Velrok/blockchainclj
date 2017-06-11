@@ -1,6 +1,6 @@
 # blockchain
 
-A native implementation of block chain in clojure.
+A naive implementation of block chain in clojure.
 Mainly for my personal learning.
 
 ## This is a pet project
